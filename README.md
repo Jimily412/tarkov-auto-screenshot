@@ -1,10 +1,10 @@
 # Tarkov Auto-Screenshot
 
-Silently captures your screen at a set interval so Tarkov Questie always has a fresh screenshot. No game popups, no sounds, no keypresses. Screenshots older than 30 seconds are deleted automatically.
+Automatically presses your EFT screenshot key on an interval so Tarkov Questie always has a fresh position update. No installation required — uses PowerShell built into Windows 10/11.
 
-Works with Questie's team feature — run this on every squad member's PC.
+## How it works
 
-**No installation required.** Uses PowerShell which is built into Windows 10/11.
+When you press the screenshot key in EFT, the game saves a .png with your coordinates in the filename. Tarkov Questie reads those coordinates to place you on the map. This tool presses that key automatically.
 
 ## How to run
 
@@ -14,10 +14,16 @@ Works with Questie's team feature — run this on every squad member's PC.
 
 ## First run setup
 
-The script asks three questions — press Enter to keep the current value:
-
-1. Screenshot folder — must match what Questie is watching (default: `C:\Users\<you>\Documents\Escape from Tarkov\Screenshots`)
-2. Interval — how often to take a screenshot (default: 5 seconds)
-3. Which screen — lists all monitors with resolutions so you can pick the one Tarkov is on
+Press Enter to keep current values:
+1. Screenshot folder — where EFT saves screenshots (default: `C:\Users\<you>\Documents\Escape from Tarkov\Screenshots`)
+2. Interval — how often to press the key (default: 5 seconds)
+3. Screenshot key — must match your EFT keybind (default: home)
 
 Settings saved to config.json. Press Ctrl+C to stop.
+
+## Silencing the screenshot sound/popup
+
+The sound comes from EFT, not this tool. Disable it in EFT Settings → Sound → screenshot notification.
+
+## Valid key names
+home, print_screen, f1-f12, insert, end, delete, scroll_lock, or any single letter
