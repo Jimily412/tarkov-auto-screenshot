@@ -1,6 +1,8 @@
 # Tarkov Auto-Screenshot
 
-Automatically presses your in-game screenshot key on a set interval so Tarkov Questie always has a fresh screenshot. Screenshots older than 30 seconds are deleted automatically.
+Silently captures your screen at a set interval so Tarkov Questie always has a fresh screenshot. No game popups, no sounds, no keypresses. Screenshots older than 30 seconds are deleted automatically.
+
+Works with Questie's team feature — run this on every squad member's PC.
 
 **No installation required.** Uses PowerShell which is built into Windows 10/11.
 
@@ -12,9 +14,10 @@ Automatically presses your in-game screenshot key on a set interval so Tarkov Qu
 
 ## First run setup
 
-The script asks three questions — press Enter to accept defaults:
-1. Screenshot folder (default: `C:\Users\<you>\Documents\Escape from Tarkov\Screenshots`)
-2. Interval in seconds (default: 5)
-3. Screenshot key (default: home)
+The script asks three questions — press Enter to keep the current value:
 
-Settings are saved to config.json. Press Ctrl+C to stop.
+1. Screenshot folder — must match what Questie is watching (default: `C:\Users\<you>\Documents\Escape from Tarkov\Screenshots`)
+2. Interval — how often to take a screenshot (default: 5 seconds)
+3. Which screen — lists all monitors with resolutions so you can pick the one Tarkov is on
+
+Settings saved to config.json. Press Ctrl+C to stop.
