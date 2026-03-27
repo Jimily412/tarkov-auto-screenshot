@@ -1,29 +1,70 @@
 # Tarkov Auto-Screenshot
 
-Automatically presses your EFT screenshot key on an interval so Tarkov Questie always has a fresh position update. No installation required — uses PowerShell built into Windows 10/11.
+Keeps [Tarkov Questie](https://tarkovquestie.com) updated with your position — silently, with no popups, and no interference with anything else on your PC.
+
+**No installation required.** Uses PowerShell which is built into Windows 10/11.
+
+---
 
 ## How it works
 
-When you press the screenshot key in EFT, the game saves a .png with your coordinates in the filename. Tarkov Questie reads those coordinates to place you on the map. This tool presses that key automatically.
+EFT embeds your exact map coordinates in every screenshot filename (e.g. `..._-519.33, -39.61, 68.41_...png`). Tarkov Questie reads those coordinates to place you on the map — it never looks at the image itself.
+
+This tool:
+1. Watches your screenshot folder for real EFT screenshots you take manually
+2. Extracts the coordinates from the filename the moment a new file appears
+3. Generates tiny silent 1×1 pixel PNGs every 2 seconds with those coordinates
+4. Deletes files older than 30 seconds automatically
+
+**Zero keypresses to EFT. Zero popups. Zero effect on typing or other apps.**
+
+---
 
 ## How to run
 
-1. Download ZIP (green Code button → Download ZIP)
+1. Download ZIP → green **Code** button → **Download ZIP**
 2. Extract anywhere
-3. Double-click run.bat
+3. Double-click **run.bat**
 
-## First run setup
+---
 
-Press Enter to keep current values:
-1. Screenshot folder — where EFT saves screenshots (default: `C:\Users\<you>\Documents\Escape from Tarkov\Screenshots`)
-2. Interval — how often to press the key (default: 5 seconds)
-3. Screenshot key — must match your EFT keybind (default: home)
+## Setup (first run on each PC)
 
-Settings saved to config.json. Press Ctrl+C to stop.
+The script will ask for your **screenshot folder** — press Enter to use the default:
 
-## Silencing the screenshot sound/popup
+```
+C:\Users\<you>\Documents\Escape from Tarkov\Screenshots
+```
 
-The sound comes from EFT, not this tool. Disable it in EFT Settings → Sound → screenshot notification.
+If EFT saves screenshots somewhere else on your machine, paste that path.
+Settings are saved to `config.json` so you only need to do this once.
 
-## Valid key names
-home, print_screen, f1-f12, insert, end, delete, scroll_lock, or any single letter
+---
+
+## In-game
+
+When you **load into a raid**, press your EFT screenshot key **once**.
+The tool picks up your coordinates and runs silently from there.
+
+Press it again any time you want to manually refresh your position marker on the squad map.
+
+---
+
+## For your squad
+
+Each player runs this on their own PC. In Tarkov Questie use the **Team** session-sharing feature — everyone's position updates on the shared map automatically.
+
+---
+
+## Troubleshooting
+
+**Questie isn't updating**
+- Make sure the screenshot folder in setup matches where EFT actually saves screenshots
+- Press your screenshot key at least once after loading into a map — the tool needs one real screenshot to read coordinates from
+
+**Files aren't being deleted**
+- Confirm the screenshot folder path is correct (it must be the same folder EFT saves to)
+- The tool only deletes files it can see in the configured folder
+
+**SPACE** — pause / resume  
+**Ctrl+C** — quit
