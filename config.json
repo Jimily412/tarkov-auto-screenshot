@@ -1,3 +1,5 @@
 {
-    "screenshot_dir": ""
+    "screenshot_dir": "",
+    "interval_seconds": 5,
+    "screenshot_key": "f12"
 }
