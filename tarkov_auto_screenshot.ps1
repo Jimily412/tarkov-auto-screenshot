@@ -1,74 +1,110 @@
 # Tarkov Auto-Screenshot
 #
-# Zero-interference position tracking for Tarkov Questie.
-# Never sends keypresses to EFT — no popups, no game interference, no effect on typing.
+# Sends screenshot key directly to EFT window only — won't affect anything else.
+# Automatically detects when you are in-raid vs in menus/lobby:
+#   IN RAID   -> screenshots fire on interval, Questie updates, files are cleaned up
+#   NOT IN RAID -> tool idles silently, no keypresses sent, waiting to detect raid start
 #
-# How it works:
-#   1. Watches your EFT screenshot folder for real screenshots you take manually.
-#   2. Extracts coordinates from EFT's coordinate-encoded filename instantly.
-#   3. Generates silent 1x1 PNGs every 2 seconds so Questie stays updated.
-#   4. Deletes files older than 30 seconds to prevent disk buildup.
-#
-# One-time per raid:
-#   When you load into a map, press your EFT screenshot key ONCE.
-#   The tool locks onto the coordinates and runs silently from there.
-#   Press it again any time you want to refresh your position on the squad map.
+# Detection: EFT only writes coordinates into the screenshot filename when inside a raid.
+# If the latest screenshot has no coordinates, you are in a menu or lobby.
 #
 # SPACE  -> pause / resume
 # Ctrl+C -> quit
 
-Add-Type -AssemblyName System.Drawing
+$VK_CODES = @{
+    "home"         = 0x24
+    "print_screen" = 0x2C
+    "insert"       = 0x2D
+    "delete"       = 0x2E
+    "end"          = 0x23
+    "scroll_lock"  = 0x91
+    "pause"        = 0x13
+    "f1"  = 0x70; "f2"  = 0x71; "f3"  = 0x72; "f4"  = 0x73
+    "f5"  = 0x74; "f6"  = 0x75; "f7"  = 0x76; "f8"  = 0x77
+    "f9"  = 0x78; "f10" = 0x79; "f11" = 0x7A; "f12" = 0x7B
+}
 
-$CONFIG_FILE  = Join-Path $PSScriptRoot "config.json"
-$DEFAULT_DIR  = [System.IO.Path]::Combine($env:USERPROFILE, "Documents", "Escape from Tarkov", "Screenshots")
-$COORD_PATTERN = '_(-?[\d]+\.[\d]+, -?[\d]+\.[\d]+, -?[\d]+\.[\d]+)_(-?[\d.]+, -?[\d.]+, -?[\d.]+, -?[\d.]+)_([\d.]+) \('
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32 {
+    [DllImport("user32.dll")]
+    public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+}
+"@
+
+$CONFIG_FILE   = Join-Path $PSScriptRoot "config.json"
+$COORD_PATTERN = '_-?[\d]+\.[\d]+, -?[\d]+\.[\d]+, -?[\d]+\.[\d]+'
 
 function Load-Config {
-    $d = @{ screenshot_dir = $DEFAULT_DIR }
+    $defaults = @{
+        screenshot_dir   = [System.IO.Path]::Combine($env:USERPROFILE, "Documents", "Escape from Tarkov", "Screenshots")
+        interval_seconds = 5
+        screenshot_key   = "f12"
+    }
     if (Test-Path $CONFIG_FILE) {
         try {
-            $s = Get-Content $CONFIG_FILE -Raw | ConvertFrom-Json
-            if ($s.screenshot_dir -and $s.screenshot_dir.Trim() -ne "") {
-                $d.screenshot_dir = $s.screenshot_dir
-            }
+            $saved = Get-Content $CONFIG_FILE -Raw | ConvertFrom-Json
+            if ($saved.screenshot_dir   -and $saved.screenshot_dir.Trim() -ne "")  { $defaults.screenshot_dir   = $saved.screenshot_dir }
+            if ($null -ne $saved.interval_seconds)                                  { $defaults.interval_seconds = [int]$saved.interval_seconds }
+            if ($saved.screenshot_key   -and $saved.screenshot_key.Trim() -ne "")  { $defaults.screenshot_key   = $saved.screenshot_key }
         } catch {}
     }
-    return $d
+    return $defaults
 }
 
 function Save-Config($cfg) {
-    [PSCustomObject]@{ screenshot_dir = $cfg.screenshot_dir } | ConvertTo-Json | Set-Content $CONFIG_FILE
+    [PSCustomObject]@{
+        screenshot_dir   = $cfg.screenshot_dir
+        interval_seconds = $cfg.interval_seconds
+        screenshot_key   = $cfg.screenshot_key
+    } | ConvertTo-Json | Set-Content $CONFIG_FILE
 }
 
-function New-FakePng($dir, $coords, $rotation, $speed) {
-    $ts   = Get-Date -Format 'yyyy-MM-dd[HH-mm-ss]'
-    $name = "${ts}_${coords}_${rotation}_${speed} (0).png"
-    $path = Join-Path $dir $name
-    if (Test-Path $path) { return $false }
-    try {
-        $bmp = New-Object System.Drawing.Bitmap(1, 1)
-        $bmp.SetPixel(0, 0, [System.Drawing.Color]::Black)
-        $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
-        $bmp.Dispose()
-        return $true
-    } catch { return $false }
+function Send-KeyToEFT($vk) {
+    $eft = Get-Process -Name "EscapeFromTarkov" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $eft -or $eft.MainWindowHandle -eq [IntPtr]::Zero) { return $false }
+    $hwnd = $eft.MainWindowHandle
+    [Win32]::PostMessage($hwnd, 0x0100, [IntPtr]$vk, [IntPtr]1)          | Out-Null
+    Start-Sleep -Milliseconds 50
+    [Win32]::PostMessage($hwnd, 0x0101, [IntPtr]$vk, [IntPtr]0xC0000001) | Out-Null
+    return $true
+}
+
+function Get-FileSnapshot($dir) {
+    if (-not (Test-Path $dir)) { return @{} }
+    $snap = @{}
+    Get-ChildItem -Path $dir -Filter "*.png" -File -ErrorAction SilentlyContinue |
+        ForEach-Object { $snap[$_.Name] = $true }
+    return $snap
+}
+
+function Get-NewFiles($dir, $snapshot) {
+    if (-not (Test-Path $dir)) { return @() }
+    return Get-ChildItem -Path $dir -Filter "*.png" -File -ErrorAction SilentlyContinue |
+        Where-Object { -not $snapshot.ContainsKey($_.Name) }
 }
 
 function Purge-Old($dir) {
+    if (-not (Test-Path $dir)) { return 0 }
     $cutoff = (Get-Date).AddSeconds(-30)
     $count  = 0
-    try {
-        Get-ChildItem -Path $dir -File -ErrorAction Stop |
-            Where-Object {
-                ($_.Extension -eq '.png' -or $_.Extension -eq '.jpg' -or $_.Extension -eq '.jpeg') -and
-                $_.LastWriteTime -lt $cutoff
-            } |
-            ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue; $count++ }
-    } catch {}
+    $files  = Get-ChildItem -Path $dir -File -ErrorAction SilentlyContinue
+    foreach ($f in $files) {
+        if ($f.Extension -eq '.png' -or $f.Extension -eq '.jpg' -or $f.Extension -eq '.jpeg') {
+            if ($f.LastWriteTime -lt $cutoff) {
+                try {
+                    Remove-Item $f.FullName -Force -ErrorAction Stop
+                    $count++
+                } catch {}
+            }
+        }
+    }
     return $count
 }
 
-Clear-Host
+# ---- Setup ----
+
 Write-Host ""
 Write-Host "  Tarkov Auto-Screenshot" -ForegroundColor Yellow
 Write-Host "  ----------------------" -ForegroundColor DarkYellow
@@ -76,30 +112,34 @@ Write-Host ""
 
 $cfg = Load-Config
 
-if (-not (Test-Path $cfg.screenshot_dir)) {
-    Write-Host "  NOTE: The saved folder doesn't exist on this machine." -ForegroundColor Red
-    Write-Host "  Default EFT location: $DEFAULT_DIR" -ForegroundColor DarkGray
-    Write-Host ""
-}
-
-Write-Host "  Screenshot folder (press Enter to keep, or type a new path)" -ForegroundColor Cyan
+Write-Host "  Screenshot folder  (Enter = keep current)" -ForegroundColor Cyan
 Write-Host "  Current: $($cfg.screenshot_dir)" -ForegroundColor Gray
-$in = Read-Host "  Path"
-if ($in.Trim() -ne "") {
-    $cfg.screenshot_dir = $in.Trim().Trim('"')
+$in = Read-Host "  New path"
+if ($in.Trim() -ne "") { $cfg.screenshot_dir = $in.Trim().Trim('"') }
+if (-not (Test-Path $cfg.screenshot_dir)) {
+    New-Item -ItemType Directory -Path $cfg.screenshot_dir -Force | Out-Null
 }
 
-if (-not (Test-Path $cfg.screenshot_dir)) {
-    try {
-        New-Item -ItemType Directory -Path $cfg.screenshot_dir -Force | Out-Null
-        Write-Host "  Folder created." -ForegroundColor DarkGray
-    } catch {
-        Write-Host ""
-        Write-Host "  ERROR: Cannot create folder: $($cfg.screenshot_dir)" -ForegroundColor Red
-        Write-Host "  Check the path and try again." -ForegroundColor Red
-        Write-Host ""
-        Read-Host "  Press Enter to exit"
-        exit 1
+Write-Host ""
+Write-Host "  Interval in seconds  (Enter = keep current)" -ForegroundColor Cyan
+Write-Host "  Current: $($cfg.interval_seconds)" -ForegroundColor Gray
+$in = Read-Host "  New interval"
+if ($in.Trim() -ne "") { $cfg.interval_seconds = [int]$in.Trim() }
+
+Write-Host ""
+Write-Host "  Screenshot key — must match your EFT keybind  (Enter = keep current)" -ForegroundColor Cyan
+Write-Host "  Current: $($cfg.screenshot_key)" -ForegroundColor Gray
+$in = Read-Host "  New key"
+if ($in.Trim() -ne "") { $cfg.screenshot_key = $in.Trim().ToLower() }
+
+$vk = $VK_CODES[$cfg.screenshot_key]
+if (-not $vk) {
+    if ($cfg.screenshot_key.Length -eq 1) {
+        $vk = [byte][char]::ToUpper($cfg.screenshot_key[0])
+    } else {
+        Write-Host "  Unknown key, defaulting to 'f12'" -ForegroundColor Red
+        $cfg.screenshot_key = "f12"
+        $vk = 0x7B
     }
 }
 
@@ -107,87 +147,75 @@ Save-Config $cfg
 
 Write-Host ""
 Write-Host "  ----------------------" -ForegroundColor DarkYellow
-Write-Host "  Folder : $($cfg.screenshot_dir)" -ForegroundColor White
+Write-Host "  Key      : $($cfg.screenshot_key.ToUpper())" -ForegroundColor White
+Write-Host "  Interval : $($cfg.interval_seconds)s" -ForegroundColor White
+Write-Host "  Folder   : $($cfg.screenshot_dir)" -ForegroundColor White
+Write-Host "  SPACE    : pause / resume" -ForegroundColor DarkGray
+Write-Host "  Ctrl+C   : quit" -ForegroundColor DarkGray
 Write-Host "  ----------------------" -ForegroundColor DarkYellow
 Write-Host ""
-Write-Host "  When you load into a map, press your EFT screenshot key ONCE." -ForegroundColor Yellow
-Write-Host "  This tool will handle the rest silently." -ForegroundColor Gray
-Write-Host ""
-Write-Host "  SPACE : pause / resume    Ctrl+C : quit" -ForegroundColor DarkGray
-Write-Host ""
 
-$global:coords       = $null
-$global:rotation     = $null
-$global:speed        = $null
-$global:coordUpdated = $false
+$shots   = 0
+$deleted = 0
+$paused  = $false
+$inRaid  = $false
 
-$seed = Get-ChildItem -Path $cfg.screenshot_dir -Filter "*.png" -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -match $COORD_PATTERN } |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
+while ($true) {
+    $loopStart = Get-Date
 
-if ($seed) {
-    if ($seed.Name -match $COORD_PATTERN) {
-        $global:coords   = $Matches[1]
-        $global:rotation = $Matches[2]
-        $global:speed    = $Matches[3]
-        $global:coordUpdated = $true
-        Write-Host "  [READY]  Picked up coordinates from existing screenshot." -ForegroundColor DarkGray
+    if ([Console]::KeyAvailable) {
+        $key = [Console]::ReadKey($true)
+        if ($key.Key -eq [ConsoleKey]::Spacebar) {
+            $paused = -not $paused
+            $label  = if ($paused) { "PAUSED — press Space to resume" } else { "RESUMED" }
+            Write-Host "  [$(Get-Date -Format 'HH:mm:ss')]  $label" -ForegroundColor Yellow
+        }
     }
-}
 
-$watcher = New-Object System.IO.FileSystemWatcher
-$watcher.Path                = $cfg.screenshot_dir
-$watcher.Filter              = "*.png"
-$watcher.NotifyFilter        = [System.IO.NotifyFilters]::FileName
-$watcher.EnableRaisingEvents = $true
+    if (-not $paused) {
+        $sent = Send-KeyToEFT $vk
 
-Register-ObjectEvent -InputObject $watcher -EventName "Created" -SourceIdentifier "EftScreenshot" -Action {
-    $name = $Event.SourceEventArgs.Name
-    if ($name -match '_(-?[\d]+\.[\d]+, -?[\d]+\.[\d]+, -?[\d]+\.[\d]+)_(-?[\d.]+, -?[\d.]+, -?[\d.]+, -?[\d.]+)_([\d.]+) \(') {
-        $global:coords       = $Matches[1]
-        $global:rotation     = $Matches[2]
-        $global:speed        = $Matches[3]
-        $global:coordUpdated = $true
-    }
-} | Out-Null
-
-$paused    = $false
-$generated = 0
-$deleted   = 0
-
-try {
-    while ($true) {
-        if ([Console]::KeyAvailable) {
-            $key = [Console]::ReadKey($true)
-            if ($key.Key -eq [ConsoleKey]::Spacebar) {
-                $paused = -not $paused
-                $label  = if ($paused) { "PAUSED  (press Space to resume)" } else { "RESUMED" }
-                Write-Host "  [$(Get-Date -Format 'HH:mm:ss')]  $label" -ForegroundColor Yellow
+        if (-not $sent) {
+            if ($inRaid) {
+                $inRaid = $false
+                Write-Host "  [$(Get-Date -Format 'HH:mm:ss')]  EFT not running — waiting..." -ForegroundColor DarkGray
             }
-        }
+        } else {
+            $before = Get-FileSnapshot $cfg.screenshot_dir
+            Start-Sleep -Milliseconds 1500
 
-        if ($global:coordUpdated) {
-            $global:coordUpdated = $false
-            Write-Host "  [$(Get-Date -Format 'HH:mm:ss')]  Position updated: $($global:coords)" -ForegroundColor Cyan
-        }
+            $newFiles  = Get-NewFiles $cfg.screenshot_dir $before
+            $wasInRaid = $inRaid
 
-        if (-not $paused) {
-            if ($global:coords) {
-                $ok = New-FakePng $cfg.screenshot_dir $global:coords $global:rotation $global:speed
-                if ($ok) { $generated++ }
-                $d = Purge-Old $cfg.screenshot_dir
-                $deleted += $d
-                Write-Host "  [$(Get-Date -Format 'HH:mm:ss')]  Running  |  Generated: $generated  Cleaned: $deleted" -ForegroundColor DarkGray
+            if ($newFiles) {
+                $hasCoords = $newFiles | Where-Object { $_.Name -match $COORD_PATTERN }
+                $inRaid    = [bool]$hasCoords
+
+                if ($inRaid) {
+                    $shots++
+                    if (-not $wasInRaid) {
+                        Write-Host "  [$(Get-Date -Format 'HH:mm:ss')]  Raid detected — tracking started." -ForegroundColor Green
+                    }
+                    Write-Host "  [$(Get-Date -Format 'HH:mm:ss')]  Shots: $shots   Cleaned: $deleted" -ForegroundColor DarkGray
+                } else {
+                    if ($wasInRaid) {
+                        Write-Host "  [$(Get-Date -Format 'HH:mm:ss')]  Left raid — idling." -ForegroundColor DarkYellow
+                    } else {
+                        Write-Host "  [$(Get-Date -Format 'HH:mm:ss')]  In menus — waiting for raid..." -ForegroundColor DarkGray
+                    }
+                }
             } else {
-                Write-Host "  [$(Get-Date -Format 'HH:mm:ss')]  Waiting... Press your EFT screenshot key once in-game to start." -ForegroundColor Yellow
+                Write-Host "  [$(Get-Date -Format 'HH:mm:ss')]  Waiting for screenshot response from EFT..." -ForegroundColor DarkGray
             }
-        }
 
-        Start-Sleep -Seconds 2
+            $d = Purge-Old $cfg.screenshot_dir
+            $deleted += $d
+        }
     }
-} finally {
-    Unregister-Event -SourceIdentifier "EftScreenshot" -ErrorAction SilentlyContinue
-    $watcher.EnableRaisingEvents = $false
-    $watcher.Dispose()
+
+    $elapsed   = ((Get-Date) - $loopStart).TotalSeconds
+    $remaining = $cfg.interval_seconds - $elapsed
+    if ($remaining -gt 0) {
+        Start-Sleep -Seconds $remaining
+    }
 }
