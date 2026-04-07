@@ -1,4 +1,4 @@
-# Tarkov Auto-Screenshot — Auto Updater
+# Tarkov Auto-Screenshot - Auto Updater
 # Called automatically by run.bat before the main script launches.
 # Checks GitHub for a newer version, downloads it silently if found.
 # On network failure or timeout, continues with the installed version.
@@ -25,21 +25,17 @@ try {
 
         $newContent = (Invoke-WebRequest -Uri "$REPO_RAW/tarkov_auto_screenshot.ps1" -UseBasicParsing -TimeoutSec 20 -ErrorAction Stop).Content
 
-        # Back up the currently installed version
         if (Test-Path $SCRIPT) {
             Copy-Item $SCRIPT $BACKUP -Force
         }
 
-        # Write the new version
         [System.IO.File]::WriteAllText($SCRIPT, $newContent, [System.Text.Encoding]::UTF8)
-
-        # Record the new version
         Set-Content -Path $LOCAL_VER -Value $remote -Encoding UTF8
 
         Write-Host "  Updated to v$remote  (previous version saved as .bak for rollback)" -ForegroundColor Green
     }
 } catch {
-    Write-Host "  Could not reach update server — running installed version." -ForegroundColor DarkGray
+    Write-Host "  Could not reach update server - running installed version." -ForegroundColor DarkGray
 }
 
 Write-Host ""

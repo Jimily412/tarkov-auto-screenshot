@@ -1,9 +1,9 @@
-# Tarkov Auto-Screenshot v3.3.0
+# Tarkov Auto-Screenshot v3.3.1
 #
 # SPACE  -> pause / resume
 # Ctrl+C -> quit
 
-$VERSION    = "3.3.0"
+$VERSION    = "3.3.1"
 $LOG_FILE   = Join-Path $PSScriptRoot "tarkov_screenshot.log"
 $CONFIG_FILE = Join-Path $PSScriptRoot "config.json"
 $COORD_PATTERN = '_-?[\d]+\.[\d]+, -?[\d]+\.[\d]+, -?[\d]+\.[\d]+'
@@ -20,7 +20,7 @@ function Write-LogError($msg, $err) {
         Write-Log "  Exception : $($err.Exception.Message)" "Red"
         Write-Log "  Type      : $($err.Exception.GetType().FullName)" "Red"
         if ($err.ScriptStackTrace) {
-            Write-Log "  Stack     : $($err.ScriptStackTrace -replace "`n", ' | ')" "Red"
+            Write-Log "  Stack     : $($err.ScriptStackTrace -replace [char]10, ' | ')" "Red"
         }
     }
 }
@@ -37,7 +37,6 @@ function Rotate-Log {
 }
 
 Rotate-Log
-
 Add-Content -Path $LOG_FILE -Value "" -Encoding UTF8
 Write-Log "============================================================" "DarkYellow"
 Write-Log "Tarkov Auto-Screenshot  v$VERSION" "Yellow"
@@ -60,7 +59,7 @@ public class Win32PostMsg {
     }
     Write-Log "Win32 interop loaded OK." "DarkGray"
 } catch {
-    Write-LogError "Add-Type failed — cannot send keys to EFT." $_
+    Write-LogError "Add-Type failed - cannot send keys to EFT." $_
     Write-Log "Script cannot continue. Press Enter to exit." "Red"
     Read-Host | Out-Null
     exit 1
@@ -138,7 +137,7 @@ function Get-NewFiles($dir, $snapshot) {
 function Purge-Old($dir) {
     $count = 0
     try {
-        if (-not (Test-Path $dir)) { Write-Log "Purge: folder not found — $dir" "Red"; return 0 }
+        if (-not (Test-Path $dir)) { Write-Log "Purge: folder not found - $dir" "Red"; return 0 }
         $cutoff = (Get-Date).AddSeconds(-30)
         $all = @(Get-ChildItem -Path $dir -File -ErrorAction Stop)
         Write-Log "Purge: $($all.Count) total file(s), cutoff=$(Get-Date $cutoff -Format 'HH:mm:ss')" "DarkGray"
@@ -191,7 +190,7 @@ if (-not $vk) {
     if ($cfg.screenshot_key.Length -eq 1) {
         $vk = [byte][char]::ToUpper($cfg.screenshot_key[0])
     } else {
-        Write-Log "Unknown key '$($cfg.screenshot_key)' — defaulting to f12." "Red"
+        Write-Log "Unknown key '$($cfg.screenshot_key)' - defaulting to f12." "Red"
         $cfg.screenshot_key = "f12"; $vk = 0x7B
     }
 }
@@ -243,14 +242,14 @@ while ($true) {
                 Write-Log "New file(s) with coords: $($hasCoords.Count)  inRaid=$inRaid" "DarkGray"
                 if ($inRaid) {
                     $shots++
-                    if (-not $wasInRaid) { Write-Log "Raid detected — tracking started." "Green" }
+                    if (-not $wasInRaid) { Write-Log "Raid detected - tracking started." "Green" }
                     Write-Log "Shots: $shots   Cleaned: $deleted" "DarkGray"
                 } else {
-                    if ($wasInRaid) { Write-Log "Left raid — idling." "DarkYellow" }
-                    else            { Write-Log "In menus — waiting for raid..." "DarkGray" }
+                    if ($wasInRaid) { Write-Log "Left raid - idling." "DarkYellow" }
+                    else            { Write-Log "In menus - waiting for raid..." "DarkGray" }
                 }
             } else {
-                Write-Log "No new screenshot appeared after keypress — EFT may be on loading screen or key not registered." "DarkYellow"
+                Write-Log "No new screenshot after keypress - EFT may be loading or key not registered." "DarkYellow"
             }
 
             $d = Purge-Old $cfg.screenshot_dir
